@@ -20,10 +20,13 @@ Base utilities to build API operation managers and objects on top of.
 """
 
 import copy
+import six
+import abc
 
 import six.moves.urllib.parse as urlparse
 
 from ironicclient.openstack.common.apiclient import base
+from ironicclient import exc
 
 
 def getid(obj):
@@ -144,3 +147,38 @@ class Resource(base.Resource):
 
     def to_dict(self):
         return copy.deepcopy(self._info)
+
+@six.add_metaclass(abc.ABCMeta)
+class CreateManager(Manager):
+    """Provides creation operations with a particular API."""
+
+    @abc.abstractproperty
+    def _creation_attributes(self):
+        """A list of required creation attributes for a resource type.
+        """
+
+    def create(self, **kwargs):
+        """Create a resource based on a kwargs dictionary of attributes.
+        :param kwargs: A dictionary containing the attributes of the resource
+                       that will be created.
+        :raises exc.InvalidAttribute: For invalid attributes that are not
+                                      needed to create the resource.
+        """
+
+        new = {}
+        invalid = []
+        for (key, value) in kwargs.items():
+            if key in self._creation_attributes:
+                new[key] = value
+            else:
+                invalid.append(key)
+        if invalid:
+            raise exc.InvalidAttribute(
+                'The attribute(s) "%(attrs)s" are invalid; they are not '
+                'needed to create %(resource)s.' %
+                {'resource': self._resource_name,
+                 'attrs': '","'.join(invalid)})
+        url = self._path()
+        resp, body = self.api.json_request('POST', url, body=new)
+        if body:
+            return self.resource_class(self, body)
